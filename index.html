@@ -1,0 +1,375 @@
+﻿ <!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CYBERWAVE TERMINAL v3.5 [NETWORK-WASTELAND]</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        :root {
+            --neon-green: #00ff00; --alert-red: #ff003c; --dark-bg: #050505;
+            --dim-green: #002200; --amber: #ffb400; --crt-glow: rgba(0, 255, 0, 0.05);
+        }
+        
+        * { box-sizing: border-box; }
+        body {
+            background-color: var(--dark-bg); color: var(--neon-green);
+            font-family: 'Courier New', monospace; margin: 0; padding: 5px;
+            height: 100vh; overflow: hidden; text-transform: uppercase; font-size: 11px;
+            display: flex; flex-direction: column;
+        }
+
+        .crt-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%);
+            background-size: 100% 4px; pointer-events: none; z-index: 100;
+        }
+
+        .header { height: 40px; border: 1px solid var(--neon-green); margin-bottom: 5px; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; background: rgba(0,20,0,0.5); }
+        .main-content { flex: 1; display: grid; grid-template-columns: 280px 1fr 280px; gap: 5px; min-height: 0; }
+        .footer { height: 160px; display: grid; grid-template-columns: 280px 1fr 280px; gap: 5px; margin-top: 5px; }
+
+        .box { border: 1px solid var(--neon-green); background: rgba(0,10,0,0.9); padding: 8px; display: flex; flex-direction: column; position: relative; overflow-y: auto; }
+        h2 { font-size: 11px; margin: 0 0 5px 0; color: var(--amber); border-bottom: 1px solid var(--dim-green); }
+
+        .video-container { position: relative; width: 100%; height: 100%; background: #000; border: 2px solid var(--neon-green); overflow: hidden; }
+        #canvas-main { width: 100%; height: 100%; image-rendering: pixelated; object-fit: contain; }
+        #canvas-pip { position: absolute; bottom: 10px; right: 10px; width: 160px; height: 120px; border: 1px solid var(--neon-green); background: #000; z-index: 10; image-rendering: pixelated; }
+        
+        video, #canvas-tx-buffer { display: none; }
+
+        input, select, button { background: #000; color: var(--neon-green); border: 1px solid var(--dim-green); padding: 4px; margin-bottom: 4px; width: 100%; font-family: inherit; font-size: 10px; }
+        button:hover { background: var(--neon-green); color: #000; cursor: pointer; }
+        .btn-call { color: var(--amber); border-color: var(--amber); font-weight: bold; }
+        .led-active { background: var(--neon-green); box-shadow: 0 0 8px var(--neon-green); }
+        .status-led { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #300; margin-right: 5px; }
+
+        #chat-history { flex: 1; overflow-y: auto; border: 1px solid var(--dim-green); padding: 5px; color: #888; font-size: 10px; margin-bottom: 5px; }
+        #net-graph-canvas { width: 100%; height: 60px; border: 1px solid var(--dim-green); background: #000; }
+        #net-logs { font-size: 8px; color: #0a0; line-height: 1.1; overflow: hidden; height: 50px; }
+    </style>
+</head>
+<body>
+
+<div class="crt-overlay"></div>
+
+<div class="header">
+    <div style="font-size: 14px; font-weight: bold; letter-spacing: 2px;">CYBERWAVE TERMINAL v3.5 // WASTELAND-LINK</div>
+    <div id="clock" style="color: var(--amber);">00:00:00</div>
+</div>
+
+<div class="main-content">
+    <div class="box">
+        <h2>[1] NETWORK NODE</h2>
+        <label>MY ALIAS:</label>
+        <input type="text" id="my-alias" value="USER-A">
+        <button onclick="initNode()">1. INITIALIZE NODE</button>
+        <h2 style="margin-top: 10px;">[2] CALL CONTROL</h2>
+        <label>TARGET ALIAS:</label>
+        <input type="text" id="target-alias" value="USER-B">
+        <button class="btn-call" onclick="establishCall()">2. CALL TARGET</button>
+        <div id="net-monitor" style="font-size: 9px; margin-top:10px;">
+            > STATUS: <span id="node-status">OFFLINE</span><br>
+            > HOST: <span id="host-id">---</span><br>
+            > PING: <span id="val-ping">0</span>ms
+        </div>
+    </div>
+
+    <div class="video-container">
+        <canvas id="canvas-main"></canvas>
+        <canvas id="canvas-pip"></canvas>
+        <div style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.8); padding: 5px; border: 1px solid var(--dim-green); z-index: 20;">
+            <span id="led" class="status-led"></span> LINK: <span id="mode-text">IDLE</span>
+        </div>
+        <div style="position: absolute; bottom: 10px; left: 10px; display: flex; gap: 5px; z-index: 20;">
+            <button onclick="swapDisplays()" style="width: 80px; margin:0;">SWAP</button>
+            <button id="btn-hangup" onclick="hangUp()" disabled style="width: 80px; margin:0; color: var(--alert-red);">HANGUP</button>
+        </div>
+    </div>
+
+    <div class="box">
+        <h2>[3] HARDWARE</h2>
+        <button onclick="scanHardware()">SCAN DEVICES</button>
+        <select id="sel-video"></select>
+        <select id="sel-audio"></select>
+        <button id="btn-media" onclick="activateMedia()">ACTIVATE SENSORS</button>
+        
+        <h2 style="margin-top: 5px;">[4] VIDEO DSP</h2>
+        <label>RES: <span id="v-res">320</span>px | FPS: <span id="v-fps">15</span></label>
+        <input type="range" id="s-res" min="64" max="640" step="16" value="320">
+        <input type="range" id="s-fps" min="1" max="30" value="15">
+        <label>NOISE: <span id="v-noise">30</span> | CONTR: <span id="v-contrast">1.2</span></label>
+        <input type="range" id="s-noise" min="0" max="100" value="30">
+        <input type="range" id="s-contrast" min="0.5" max="3" step="0.1" value="1.2">
+        
+        <h2 style="margin-top: 5px;">[5] AUDIO DSP</h2>
+        <label>GAIN: <span id="v-gain">1.0</span> | BITS: <span id="v-bits">4</span></label>
+        <input type="range" id="s-gain" min="0" max="5" step="0.1" value="1.0">
+        <input type="range" id="s-bits" min="1" max="16" value="4">
+    </div>
+</div>
+
+<div class="footer">
+    <div class="box" style="grid-column: 1 / 3;">
+        <h2>[6] SECURE COMMS</h2>
+        <div id="chat-history">SYSTEM READY.</div>
+        <div style="display: flex; gap: 5px;">
+            <input type="text" id="chat-in" placeholder="..." onkeypress="if(event.key==='Enter') sendChat()">
+            <button onclick="sendChat()" style="width: 60px;">SEND</button>
+        </div>
+    </div>
+    <div class="box">
+        <h2>[7] NET ANALYZER</h2>
+        <canvas id="net-graph-canvas"></canvas>
+        <div id="net-logs"></div>
+        <div style="font-size: 9px; margin-top:5px; border-top: 1px solid var(--dim-green); padding-top:2px;">
+            BITRATE: <span id="bitrate-num">0</span> B/S
+        </div>
+    </div>
+</div>
+
+<video id="v-local" autoplay muted playsinline></video>
+<video id="v-remote" autoplay playsinline></video>
+<canvas id="canvas-tx-buffer"></canvas>
+
+<script>
+    let peer, conn, call, localStream, processedStream;
+    let audioCtx, gainNode, bCrushNode, audioDest;
+    let bytesPrev = 0;
+    let isRemoteBig = true;
+    let lastRenderTime = 0;
+
+    const cMain = document.getElementById('canvas-main'), cPip = document.getElementById('canvas-pip'), cTx = document.getElementById('canvas-tx-buffer');
+    const ctxMain = cMain.getContext('2d'), ctxPip = cPip.getContext('2d'), ctxTx = cTx.getContext('2d');
+    const vLocal = document.getElementById('v-local'), vRemote = document.getElementById('v-remote');
+
+    function initNode() {
+    const myAlias = document.getElementById('my-alias').value;
+    const fullId = `CYBER-NET-V3-${myAlias}`;
+    
+    if(peer) peer.destroy();
+
+    // Konfiguracja infrastruktury sieciowej dla połączeń przez Internet
+    const config = {
+        config: {
+            iceServers: [
+                // STUN od Google (pomaga ustalić publiczne IP)
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                
+                // TURN od OpenRelay (pośredniczy w przesyłaniu danych, gdy porty są zablokowane)
+                // Nie wymaga logowania w tym module, dane są publiczne dla projektu OpenRelay
+                {
+                    urls: 'turn:openrelay.metered.ca:443',
+                    username: 'openrelay',
+                    credential: 'openrelay'
+                },
+                {
+                    urls: 'turn:openrelay.metered.ca:80',
+                    username: 'openrelay',
+                    credential: 'openrelay'
+                }
+            ],
+            // Ustawienie wymuszające nowszy standard obsługi strumieni
+            sdpSemantics: 'unified-plan'
+        },
+        debug: 1 // Możesz zmienić na 3, jeśli chcesz widzieć logi połączeń w konsoli F12
+    };
+
+    // Inicjalizacja węzła z nową konfiguracją
+    peer = new Peer(fullId, config);
+
+    peer.on('open', id => {
+        document.getElementById('node-status').innerText = "ONLINE / SECURE";
+        document.getElementById('host-id').innerText = id;
+        logMsg("SYSTEM", "NODE ACTIVE: " + myAlias);
+    });
+
+    peer.on('connection', c => { 
+        conn = c; 
+        bindConnEvents(); 
+        logMsg("SYSTEM", "INCOMING DATA LINK");
+    });
+
+    peer.on('call', incoming => {
+        logMsg("SYSTEM", "INCOMING SIGNAL...");
+        // Automatyczne odbieranie lub przez confirm - w Twoim stylu:
+        if(confirm("ACCEPT INCOMING TRANSMISSION?")) {
+            incoming.answer(processedStream);
+            bindCallEvents(incoming);
+        }
+    });
+
+    peer.on('error', err => {
+        logMsg("ERROR", err.type);
+        console.error("PeerJS Crypto-Error:", err);
+    });
+}
+    
+
+    function establishCall() {
+        const targetId = `CYBER-NET-V3-${document.getElementById('target-alias').value}`;
+        if(!peer) return alert("INIT FIRST");
+        conn = peer.connect(targetId);
+        bindConnEvents();
+        if(processedStream) bindCallEvents(peer.call(targetId, processedStream));
+        else alert("ACTIVATE SENSORS FIRST");
+    }
+
+    async function activateMedia() {
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            vLocal.srcObject = localStream;
+            vLocal.onloadedmetadata = () => {
+                vLocal.play();
+                setupAudio();
+                updateResolution();
+                const txStream = cTx.captureStream(parseInt(document.getElementById('s-fps').value));
+                processedStream = new MediaStream([txStream.getVideoTracks()[0], audioDest.stream.getAudioTracks()[0]]);
+                startRendering();
+                logMsg("SYSTEM", "SENSORS ONLINE");
+            };
+        } catch(e) { alert("CAM ERR: " + e); }
+    }
+
+    function setupAudio() {
+        if(!audioCtx) audioCtx = new AudioContext();
+        const source = audioCtx.createMediaStreamSource(localStream);
+        gainNode = audioCtx.createGain();
+        bCrushNode = audioCtx.createScriptProcessor(4096, 1, 1);
+        audioDest = audioCtx.createMediaStreamDestination();
+        bCrushNode.onaudioprocess = (e) => {
+            const input = e.inputBuffer.getChannelData(0), output = e.outputBuffer.getChannelData(0);
+            const bits = parseInt(document.getElementById('s-bits').value), step = Math.pow(0.5, bits);
+            for(let i=0; i<input.length; i++) output[i] = Math.floor(input[i]/step)*step;
+        };
+        source.connect(gainNode); gainNode.connect(bCrushNode); bCrushNode.connect(audioDest);
+    }
+
+    function updateResolution() {
+        const res = parseInt(document.getElementById('s-res').value);
+        const aspect = 4/3;
+        cTx.width = res; cTx.height = res / aspect;
+        cMain.width = res; cMain.height = res / aspect;
+        cPip.width = res; cPip.height = res / aspect;
+    }
+
+    function startRendering() {
+        const render = (now) => {
+            const fps = parseInt(document.getElementById('s-fps').value);
+            const interval = 1000 / fps;
+            
+            if (now - lastRenderTime >= interval) {
+                const noise = parseInt(document.getElementById('s-noise').value);
+                const contrast = document.getElementById('s-contrast').value;
+                const resW = cTx.width; const resH = cTx.height;
+
+                // 1. TX BUFFER
+                if(vLocal.readyState >= 2) {
+                    ctxTx.filter = `contrast(${contrast})`;
+                    ctxTx.drawImage(vLocal, 0, 0, resW, resH);
+                    applyCyber(ctxTx, noise, resW, resH);
+                }
+
+                // 2. UI DRAW
+                if(isRemoteBig) {
+                    drawTo(vRemote, ctxMain, noise/2, "WAITING FOR REMOTE...", resW, resH);
+                    drawTo(vLocal, ctxPip, noise, "LOCAL OFF", resW, resH);
+                } else {
+                    drawTo(vLocal, ctxMain, noise, "LOCAL OFF", resW, resH);
+                    drawTo(vRemote, ctxPip, noise/2, "WAITING...", resW, resH);
+                }
+                lastRenderTime = now;
+            }
+            requestAnimationFrame(render);
+        };
+        requestAnimationFrame(render);
+    }
+
+    function drawTo(v, t, n, msg, w, h) {
+        if(v.readyState >= 2) {
+            t.filter = `contrast(${document.getElementById('s-contrast').value})`;
+            t.drawImage(v, 0, 0, w, h);
+            applyCyber(t, n, w, h);
+        } else {
+            t.fillStyle = "#000"; t.fillRect(0,0,w,h);
+            t.fillStyle = "var(--amber)"; t.font = "10px monospace"; t.fillText(msg, w/4, h/2);
+        }
+    }
+
+    function applyCyber(t, n, w, h) {
+        const frame = t.getImageData(0,0,w,h), d = frame.data;
+        for(let i=0; i<d.length; i+=4) {
+            let g = (d[i]+d[i+1]+d[i+2])/3 + (Math.random()-0.5)*n;
+            d[i]=0; d[i+1]=g; d[i+2]=0;
+            if(Math.floor((i/4)/w)%2===0) d[i+1]*=0.8;
+        }
+        t.putImageData(frame, 0, 0);
+    }
+
+    // --- NETWORK STATS & LOGS ---
+    function updateNetworkVisuals() {
+        const logBox = document.getElementById('net-logs');
+        const protocols = ["UDP", "TCP", "STUN", "ICE", "DTLS"];
+        const ips = ["192.168.1.1", "10.0.0.45", "78.12.4.211", "127.0.0.1"];
+        
+        const logLine = `[${protocols[Math.floor(Math.random()*5)]}] PKT_IN FROM ${ips[Math.floor(Math.random()*4)]} - LEN:${Math.floor(Math.random()*1500)}`;
+        logBox.innerHTML = `<div>${logLine}</div>` + logBox.innerHTML;
+        if(logBox.childNodes.length > 5) logBox.removeChild(logBox.lastChild);
+
+        if(call && call.peerConnection) {
+            call.peerConnection.getStats(null).then(stats => {
+                stats.forEach(r => {
+                    if(r.type === 'inbound-rtp' && r.kind === 'video') {
+                        const delta = r.bytesReceived - bytesPrev; bytesPrev = r.bytesReceived;
+                        document.getElementById('bitrate-num').innerText = delta;
+                        
+                        const nC = document.getElementById('net-graph-canvas'), nX = nC.getContext('2d');
+                        if(!nC.width) { nC.width=280; nC.height=60; }
+                        const img = nX.getImageData(1,0,279,60); nX.putImageData(img, 0,0);
+                        nX.clearRect(279,0,1,60); nX.fillStyle = "var(--neon-green)";
+                        const barH = Math.min(60,(delta/20000)*60);
+                        nX.fillRect(278, 60-barH, 2, barH);
+                    }
+                });
+            });
+        }
+    }
+    setInterval(updateNetworkVisuals, 1000);
+
+    // --- RESZTA LOGIKI ---
+    function bindConnEvents() {
+        conn.on('open', () => { document.getElementById('led').classList.add('led-active'); logMsg("SYSTEM", "LINK OPEN"); });
+        conn.on('data', d => logMsg("REMOTE", d));
+    }
+    function bindCallEvents(c) {
+        call = c;
+        call.on('stream', s => { vRemote.srcObject = s; vRemote.play(); document.getElementById('mode-text').innerText = "STREAM_ON"; document.getElementById('btn-hangup').disabled = false; });
+    }
+    function swapDisplays() { isRemoteBig = !isRemoteBig; }
+    function sendChat() { const i = document.getElementById('chat-in'); if(i.value && conn) { conn.send(i.value); logMsg("YOU", i.value); i.value = ''; } }
+    function logMsg(w, m) { const h = document.getElementById('chat-history'); h.innerHTML += `<div>[${w}]: ${m}</div>`; h.scrollTop = h.scrollHeight; }
+    function hangUp() { if(call) call.close(); location.reload(); }
+
+    async function scanHardware() {
+        const vS = document.getElementById('sel-video'), aS = document.getElementById('sel-audio');
+        vS.innerHTML = ''; aS.innerHTML = '';
+        const devs = await navigator.mediaDevices.enumerateDevices();
+        devs.forEach(d => {
+            const o = document.createElement('option'); o.value = d.deviceId; o.text = d.label || `${d.kind}`;
+            if(d.kind === 'videoinput') vS.appendChild(o);
+            if(d.kind === 'audioinput') aSel.appendChild(o);
+        });
+    }
+
+    document.getElementById('s-res').oninput = function() { document.getElementById('v-res').innerText = this.value; updateResolution(); };
+    document.getElementById('s-fps').oninput = function() { document.getElementById('v-fps').innerText = this.value; };
+    document.getElementById('s-gain').oninput = function() { if(gainNode) gainNode.gain.value = this.value; document.getElementById('v-gain').innerText = this.value; };
+    document.getElementById('s-contrast').oninput = function() { document.getElementById('v-contrast').innerText = this.value; };
+    document.getElementById('s-noise').oninput = function() { document.getElementById('v-noise').innerText = this.value; };
+    document.getElementById('s-bits').oninput = function() { document.getElementById('v-bits').innerText = this.value; };
+    setInterval(() => { document.getElementById('clock').innerText = new Date().toLocaleTimeString(); }, 1000);
+    window.onload = scanHardware;
+</script>
+</body>
+</html>
